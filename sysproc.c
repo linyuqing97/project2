@@ -100,3 +100,4 @@ int sys_enable_sched_trace(void)
 
   return 0;
 }
+

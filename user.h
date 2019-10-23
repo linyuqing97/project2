@@ -39,6 +39,7 @@ void free(void*);
 int atoi(const char*);
 
 void enable_sched_trace(int enable);
+
 int setrunningticks(int time_allotment);
 int setwaitingticks(int waiting_thres);
 int setpriority(int pid, int priority);

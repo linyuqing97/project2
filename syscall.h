@@ -24,4 +24,3 @@
 #define SYS_setrunningticks  23
 #define SYS_setwaitingticks  24
 #define SYS_setpriority  25
-

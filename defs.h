@@ -111,8 +111,6 @@ int             growproc(int);
 int             kill(int);
 void            pinit(void);
 void            procdump(void);
-void            rr_scheduler(void) __attribute__((noreturn));
-void            mlfq_scheduler(void) __attribute__((noreturn));
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);

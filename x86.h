@@ -144,7 +144,7 @@ lcr3(uint val)
   asm volatile("movl %0,%%cr3" : : "r" (val));
 }
 
-// CS550: to solve the 100%-CPU-utilization-when-idling problem - "hlt" instruction puts CPU to sleep
+// CS350: to solve the 100%-CPU-utilization-when-idling problem - "hlt" instruction puts CPU to sleep
 static inline void
 halt()
 {

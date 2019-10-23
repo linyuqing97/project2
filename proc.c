@@ -12,16 +12,15 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+int RUNNING_THRESHOLD = 2;
+int WAITING_THRESHOLD = 4;
+
+int sched_policy = 1;//1 -- MLFQ, 0 PROB
 static struct proc *initproc;
 
 int nextpid = 1;
 
-int sched_policy = 1;  // 0 for default RR policy, 1 for MLFQ scheduler
-
-int sched_trace_enabled = 1; // for CS550 CPU/process project
-
-int RUNNING_THRESHOLD = 2;
-int WAITING_THRESHOLD = 4;
+int sched_trace_enabled = 1; // for CS350 CPU/process project
 
 extern void forkret(void);
 extern void trapret(void);
@@ -39,6 +38,8 @@ pinit(void)
 // If found, change state to EMBRYO and initialize
 // state required to run in the kernel.
 // Otherwise return 0.
+
+
 static struct proc*
 allocproc(void)
 {
@@ -47,7 +48,7 @@ allocproc(void)
 
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == UNUSED)
+    if(p->state == UNUSED) //first lookat unused process
       goto found;
   release(&ptable.lock);
   return 0;
@@ -55,6 +56,9 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+
+//p->runingtick = 0;
+
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -77,11 +81,9 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
-
-  p->running_tick = 0;
-  p->priority = 1;
-  p->queue_type = 0;
-
+   p->running_tick = 0;
+   p->priority =1;
+   p->queue = 0;
   return p;
 }
 
@@ -275,10 +277,10 @@ wait(void)
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
 void
-rr_scheduler(void)
+scheduler(void)
 {
   struct proc *p;
-  int ran = 0; // CS550: to solve the 100%-CPU-utilization-when-idling problem
+  int ran = 0; // CS350: to solve the 100%-CPU-utilization-when-idling problem
 
   for(;;){
     // Enable interrupts on this processor.
@@ -287,134 +289,71 @@ rr_scheduler(void)
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
     ran = 0;
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
 
-      ran = 1;
+    if(sched_policy == 0){
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+       if(p->state != RUNNABLE){
+        continue;}
+        ran = 1;
+      // Switch to chosen process.  It is the process's job
+      // to release ptable.lock and then reacquire it
+      // before jumping back to us.
+        proc = p;
+        switchuvm(p);
+        p->state = RUNNING;
+        swtch(&cpu->scheduler, proc->context);
+        switchkvm();
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+        proc = 0;
+    }
+      release(&ptable.lock);
+	  }
+	  else{
+    // implement MLFQ here
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+          if(p->state == RUNNABLE && p->queue == 1){
+            if(p->waiting_tick>WAITING_THRESHOLD){
+              p->queue = 0;
+              p->running_tick =0;
+            }
+            else p->running_tick ++;
+          }
+
+          if(p->state != RUNNABLE || p->queue != 0)
+            continue;
+
+          ran = 1;
       
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
+          proc = p;
+          switchuvm(p);
+          p->state = RUNNING;
+          if(p->running_tick>RUNNING_THRESHOLD){
+            p->queue = 1;
+            p->running_tick = 0;
+          }
+          swtch(&cpu->scheduler, proc->context);
+          switchkvm();
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.
-      proc = 0;
-    }
-    release(&ptable.lock);
+          proc = 0;
+      }
 
+
+
+
+
+   
+    }
+      release(&ptable.lock);
     if (ran == 0){
         halt();
     }
-  }
-}
-
-void mlfq_scheduler(void) {
-  struct proc *p;
-  int ran = 0; // CS550: to solve the 100%-CPU-utilization-when-idling problem
-
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
-
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    ran = 0;
-
-    // RR in queue 0
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if (p->queue_type == 1 && p->state == RUNNABLE) {
-        if (p->waiting_tick > WAITING_THRESHOLD) {
-          p->queue_type = 0;
-          p->waiting_tick = 0;
-        } else {
-          p->waiting_tick += 1;
-        }
-      }
-
-      if(p->queue_type != 0 || p->state != RUNNABLE)
-        continue;
-
-      ran = 1;
-
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      p->running_tick += 1;
-
-      if (p->running_tick > RUNNING_THRESHOLD &&
-          p->pid != 1 && p->pid != 2 && p->priority != 0
-      ) {
-        p->queue_type = 1;
-        p->running_tick = 0;
-      }
-
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
-    }
-
-    if (ran == 0) {
-      // priority in queue 1
-      struct proc *next_proc = 0;
-      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if(p->queue_type != 1 || p->state != RUNNABLE) {
-          continue;
-        }
-
-        if (p->waiting_tick > WAITING_THRESHOLD) {
-          p->queue_type = 0;
-          p->waiting_tick = 0;
-        } else {
-          p->waiting_tick += 1;
-        }
-
-        if (next_proc == 0 || p->waiting_tick > next_proc->waiting_tick) {
-          next_proc = p;
-        }
-      }
-
-      if (next_proc != 0) {
-        if (next_proc->waiting_tick != 0) {
-          next_proc->waiting_tick -= 1;
-        }
-
-        ran = 1;
-
-        proc = next_proc;
-        switchuvm(next_proc);
-        next_proc->state = RUNNING;
-        swtch(&cpu->scheduler, proc->context);
-        switchkvm();
-
-        proc = 0;
-      }
-    }
-
-    release(&ptable.lock);
-
-    if (ran == 0){
-        halt();
-    }
-  }
-}
-
-void scheduler(void) {
-  if (sched_policy == 0) {
-    rr_scheduler();
-  } else {
-    mlfq_scheduler();
   }
 }
 
@@ -435,7 +374,7 @@ sched(void)
     panic("sched interruptible");
   intena = cpu->intena;
 
-  // CS550: print previously running process
+  // CS350: print previously running process
   // We skip process 1 (init) and 2 (shell)
   if ( sched_trace_enabled &&
 	proc && proc->pid != 1 && proc->pid != 2)
@@ -594,13 +533,13 @@ procdump(void)
     cprintf("\n");
   }
 }
-
-int sys_set_running_ticks(void) {
-  if (argint(0, &RUNNING_THRESHOLD) < 0) {
-    cprintf("setrunningticks() failed!\n");
+int setrunningticks(void){
+   if (argint(0, &RUNNING_THRESHOLD) < 0) {
+    cprintf("setruningingticks() failed!\n");
     return 1;
   }
   return 0;
+
 }
 
 int sys_set_waiting_ticks(void) {
@@ -610,7 +549,7 @@ int sys_set_waiting_ticks(void) {
   }
   return 0;
 }
-
+/*
 int sys_set_priority(void) {
   int pid, priority;
   argint(0, &pid);
@@ -631,3 +570,4 @@ int sys_set_priority(void) {
 
   return 1;
 }
+*/

@@ -67,9 +67,9 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int running_tick;
-  int waiting_tick;
-  int priority;                // zero means pinned into queue 0
-  int queue_type;              // for mlfq scheduler only, indicates queue type (0/1)
+  int waiting_tick; 
+  int priority;
+  int queue;
 };
 
 // Process memory is laid out contiguously, low addresses first:
